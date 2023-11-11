@@ -3,7 +3,6 @@ import algosdk
 
 from src.marketplace_interfaces import NFTMarketplaceInterface
 
-
 class NFTMarketplaceASC1(NFTMarketplaceInterface):
     class Variables:
         escrow_address = Bytes("ESCROW_ADDRESS")
@@ -37,7 +36,8 @@ class NFTMarketplaceASC1(NFTMarketplaceInterface):
             [Txn.application_args[0] == Bytes(self.AppMethods.buy),
              self.buy()],
 
-            [Txn.application_args[0] == Bytes(self.AppMethods.stop_sell_offer), self.stop_sell_offer()]
+            [Txn.application_args[0] == Bytes(self.AppMethods.stop_sell_offer),
+             self.stop_sell_offer()]
         )
 
         return actions
@@ -82,7 +82,6 @@ class NFTMarketplaceASC1(NFTMarketplaceInterface):
             freeze_address,
             reserve_address,
             default_frozen,
-            Assert(Txn.assets[0] == App.globalGet(self.Variables.asa_id)),
             Assert(asset_escrow.value() == Txn.application_args[1]),
             Assert(default_frozen.value()),
             Assert(manager_address.value() == Global.zero_address()),
@@ -110,7 +109,6 @@ class NFTMarketplaceASC1(NFTMarketplaceInterface):
 
         can_sell = And(valid_number_of_transactions,
                        app_is_active,
-                       valid_seller,
                        valid_number_of_arguments)
 
         update_state = Seq([
@@ -147,10 +145,13 @@ class NFTMarketplaceASC1(NFTMarketplaceInterface):
             Gtxn[2].asset_amount() == Int(1)
         )
 
+        sufficient_payment = Gtxn[1].amount() >= App.globalGet(self.Variables.asa_price)
+
         can_buy = And(valid_number_of_transactions,
                       asa_is_on_sale,
                       valid_payment_to_seller,
-                      valid_asa_transfer_from_escrow_to_buyer)
+                      valid_asa_transfer_from_escrow_to_buyer,
+                      sufficient_payment)
 
         update_state = Seq([
             App.globalPut(self.Variables.asa_owner, Gtxn[0].sender()),
@@ -168,10 +169,12 @@ class NFTMarketplaceASC1(NFTMarketplaceInterface):
         valid_number_of_transactions = Global.group_size() == Int(1)
         valid_caller = Txn.sender() == App.globalGet(self.Variables.asa_owner)
         app_is_initialized = App.globalGet(self.Variables.app_state) != self.AppState.not_initialized
+        nft_on_sale = App.globalGet(self.Variables.app_state) == self.AppState.selling_in_progress
 
         can_stop_selling = And(valid_number_of_transactions,
                                valid_caller,
-                               app_is_initialized)
+                               app_is_initialized,
+                               nft_on_sale)
 
         update_state = Seq([
             App.globalPut(self.Variables.app_state, self.AppState.active),
