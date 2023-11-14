@@ -1,197 +1,103 @@
 from pyteal import *
 import algosdk
 
-from src.marketplace_interfaces import NFTMarketplaceInterface
+class NFTMarketplaceASC1:
+    def __init__(self):
+        self.escrow_address = Bytes("ESCROW_ADDRESS")
+        self.asa_id = Bytes("ASA_ID")
+        self.asa_price = Bytes("ASA_PRICE")
+        self.asa_owner = Bytes("ASA_OWNER")
+        self.app_state = Bytes("APP_STATE")
+        self.app_admin = Bytes("APP_ADMIN")
 
-
-class NFTMarketplaceASC1(NFTMarketplaceInterface):
-    class Variables:
-        escrow_address = Bytes("ESCROW_ADDRESS")
-        asa_id = Bytes("ASA_ID")
-        asa_price = Bytes("ASA_PRICE")
-        asa_owner = Bytes("ASA_OWNER")
-        app_state = Bytes("APP_STATE")
-        app_admin = Bytes("APP_ADMIN")
-
-    class AppMethods:
-        initialize_escrow = "initializeEscrow"
-        make_sell_offer = "makeSellOffer"
-        buy = "buy"
-        stop_sell_offer = "stopSellOffer"
-
-    class AppState:
-        not_initialized = Int(0)
-        active = Int(1)
-        selling_in_progress = Int(2)
-
-    def application_start(self):
-        actions = Cond(
-            [Txn.application_id() == Int(0), self.app_initialization()],
-
-            [Txn.application_args[0] == Bytes(self.AppMethods.initialize_escrow),
-             self.initialize_escrow(escrow_address=Txn.application_args[1])],
-
-            [Txn.application_args[0] == Bytes(self.AppMethods.make_sell_offer),
-             self.make_sell_offer(sell_price=Txn.application_args[1])],
-
-            [Txn.application_args[0] == Bytes(self.AppMethods.buy),
-             self.buy()],
-
-            [Txn.application_args[0] == Bytes(self.AppMethods.stop_sell_offer), self.stop_sell_offer()]
-        )
-
-        return actions
-
-    def app_initialization(self):
-        """
-        CreateAppTxn with 2 arguments: asa_owner, app_admin.
-        The foreign_assets array should have 1 asa_id which will be the id of the NFT of interest.
-        :return:
-        """
+    def on_creation(self):
         return Seq([
-            Assert(Txn.application_args.length() == Int(2)),
-            App.globalPut(self.Variables.app_state, self.AppState.not_initialized),
-            App.globalPut(self.Variables.asa_id, Txn.assets[0]),
-            App.globalPut(self.Variables.asa_owner, Txn.application_args[0]),
-            App.globalPut(self.Variables.app_admin, Txn.application_args[1]),
+            App.globalPut(self.app_state, Int(0)),
             Return(Int(1))
         ])
 
+    def on_closeout(self):
+        return Return(Int(1))
+
+    def on_opted_in(self, asset_id, sender):
+        return Return(Int(1))
+
+    def on_delete(self, asset_id):
+        return Return(Int(1))
+
     def initialize_escrow(self, escrow_address):
-        """
-        Application call from the app_admin.
-        :return:
-        """
-        curr_escrow_address = App.globalGetEx(Int(0), self.Variables.escrow_address)
-
-        asset_escrow = AssetParam.clawback(Txn.assets[0])
-        manager_address = AssetParam.manager(Txn.assets[0])
-        freeze_address = AssetParam.freeze(Txn.assets[0])
-        reserve_address = AssetParam.reserve(Txn.assets[0])
-        default_frozen = AssetParam.defaultFrozen(Txn.assets[0])
-
         return Seq([
-            curr_escrow_address,
-            Assert(curr_escrow_address.hasValue() == Int(0)),
-
-            Assert(App.globalGet(self.Variables.app_admin) == Txn.sender()),
-            Assert(Global.group_size() == Int(1)),
-
-            asset_escrow,
-            manager_address,
-            freeze_address,
-            reserve_address,
-            default_frozen,
-            Assert(Txn.assets[0] == App.globalGet(self.Variables.asa_id)),
-            Assert(asset_escrow.value() == Txn.application_args[1]),
-            Assert(default_frozen.value()),
-            Assert(manager_address.value() == Global.zero_address()),
-            Assert(freeze_address.value() == Global.zero_address()),
-            Assert(reserve_address.value() == Global.zero_address()),
-
-            App.globalPut(self.Variables.escrow_address, escrow_address),
-            App.globalPut(self.Variables.app_state, self.AppState.active),
+            Assert(Txn.application_args.length() == Int(2)),
+            Assert(Txn.application_args[0] == Bytes("initializeEscrow")),
+            Assert(Txn.sender() == App.globalGet(self.app_admin)),
+            Assert(App.globalGet(self.app_state) == Int(0)),
+            App.globalPut(self.app_state, Int(1)),
+            App.globalPut(self.escrow_address, escrow_address),
             Return(Int(1))
         ])
 
     def make_sell_offer(self, sell_price):
-        """
-        Single application call with 2 arguments.
-        - method_name
-        - price
-        :return:
-        """
-        valid_number_of_transactions = Global.group_size() == Int(1)
-        app_is_active = Or(App.globalGet(self.Variables.app_state) == self.AppState.active,
-                           App.globalGet(self.Variables.app_state) == self.AppState.selling_in_progress)
-
-        valid_seller = Txn.sender() == App.globalGet(self.Variables.asa_owner)
-        valid_number_of_arguments = Txn.application_args.length() == Int(2)
-
-        can_sell = And(valid_number_of_transactions,
-                       app_is_active,
-                       valid_seller,
-                       valid_number_of_arguments)
-
-        update_state = Seq([
-            App.globalPut(self.Variables.asa_price, Btoi(sell_price)),
-            App.globalPut(self.Variables.app_state, self.AppState.selling_in_progress),
+        return Seq([
+            Assert(Txn.application_args.length() == Int(2)),
+            Assert(Txn.application_args[0] == Bytes("makeSellOffer")),
+            Assert(App.globalGet(self.app_state) == Int(1)),
+            Assert(Txn.sender() == App.globalGet(self.asa_owner)),
+            App.globalPut(self.asa_price, Btoi(sell_price) * Int(10**6)),
+            App.globalPut(self.app_state, Int(2)),
             Return(Int(1))
         ])
-
-        return If(can_sell).Then(update_state).Else(Return(Int(0)))
 
     def buy(self):
-        """
-        Atomic transfer of 3 transactions:
-        1. Application call.
-        2. Payment from buyer to seller.
-        3. Asset transfer from escrow to buyer.
-        :return:
-        """
-        valid_number_of_transactions = Global.group_size() == Int(3)
-        asa_is_on_sale = App.globalGet(self.Variables.app_state) == self.AppState.selling_in_progress
-
-        valid_payment_to_seller = And(
-            Gtxn[1].type_enum() == TxnType.Payment,
-            Gtxn[1].receiver() == App.globalGet(self.Variables.asa_owner),
-            Gtxn[1].amount() == App.globalGet(self.Variables.asa_price),
-            Gtxn[1].sender() == Gtxn[0].sender(),
-            Gtxn[1].sender() == Gtxn[2].asset_receiver()
-        )
-
-        valid_asa_transfer_from_escrow_to_buyer = And(
-            Gtxn[2].type_enum() == TxnType.AssetTransfer,
-            Gtxn[2].sender() == App.globalGet(self.Variables.escrow_address),
-            Gtxn[2].xfer_asset() == App.globalGet(self.Variables.asa_id),
-            Gtxn[2].asset_amount() == Int(1)
-        )
-
-        can_buy = And(valid_number_of_transactions,
-                      asa_is_on_sale,
-                      valid_payment_to_seller,
-                      valid_asa_transfer_from_escrow_to_buyer)
-
-        update_state = Seq([
-            App.globalPut(self.Variables.asa_owner, Gtxn[0].sender()),
-            App.globalPut(self.Variables.app_state, self.AppState.active),
+        return Seq([
+            Assert(Txn.application_args.length() == Int(1)),
+            Assert(Txn.application_args[0] == Bytes("buy")),
+            Assert(App.globalGet(self.app_state) == Int(2)),
+            Assert(Gtxn[1].type_enum() == TxnType.Payment),
+            Assert(Gtxn[1].receiver() == App.globalGet(self.asa_owner)),
+            Assert(Gtxn[1].amount() == App.globalGet(self.asa_price)),
+            Assert(Gtxn[1].sender() == Gtxn[0].sender()),
+            Assert(Gtxn[1].sender() != App.globalGet(self.asa_owner)),
+            Assert(Gtxn[2].type_enum() == TxnType.AssetTransfer),
+            Assert(Gtxn[2].sender() == App.globalGet(self.escrow_address)),
+            Assert(Gtxn[2].xfer_asset() == App.globalGet(self.asa_id)),
+            Assert(Gtxn[2].asset_amount() == Int(1)),
+            App.globalPut(self.asa_owner, Gtxn[0].sender()),
+            App.globalPut(self.app_state, Int(1)),
             Return(Int(1))
         ])
-
-        return If(can_buy).Then(update_state).Else(Return(Int(0)))
 
     def stop_sell_offer(self):
-        """
-        Single application call.
-        :return:
-        """
-        valid_number_of_transactions = Global.group_size() == Int(1)
-        valid_caller = Txn.sender() == App.globalGet(self.Variables.asa_owner)
-        app_is_initialized = App.globalGet(self.Variables.app_state) != self.AppState.not_initialized
-
-        can_stop_selling = And(valid_number_of_transactions,
-                               valid_caller,
-                               app_is_initialized)
-
-        update_state = Seq([
-            App.globalPut(self.Variables.app_state, self.AppState.active),
+        return Seq([
+            Assert(Txn.application_args.length() == Int(1)),
+            Assert(Txn.application_args[0] == Bytes("stopSellOffer")),
+            Assert(App.globalGet(self.app_state) != Int(0)),
+            Assert(Txn.sender() == App.globalGet(self.asa_owner)),
+            App.globalPut(self.app_state, Int(1)),
             Return(Int(1))
         ])
 
-        return If(can_stop_selling).Then(update_state).Else(Return(Int(0)))
-
     def approval_program(self):
-        return self.application_start()
+        return Cond(
+            [Txn.application_id() == Int(0), self.on_creation()],
+            [Txn.on_closeout(), self.on_closeout()],
+            [Txn.on_opted_in(), self.on_opted_in(Txn.asset_id(), Txn.sender())],
+            [Txn.on_delete(), self.on_delete(Txn.asset_id())],
+            [Txn.application_args[0] == Bytes("initializeEscrow"), self.initialize_escrow(Txn.application_args[1])],
+            [Txn.application_args[0] == Bytes("makeSellOffer"), self.make_sell_offer(Txn.application_args[1])],
+            [Txn.application_args[0] == Bytes("buy"), self.buy()],
+            [Txn.application_args[0] == Bytes("stopSellOffer"), self.stop_sell_offer()]
+        )
 
     def clear_program(self):
         return Return(Int(1))
 
     @property
     def global_schema(self):
-        return algosdk.future.transaction.StateSchema(num_uints=3,
-                                                      num_byte_slices=3)
+        return algosdk.future.transaction.StateSchema(num_uints=3, num_byte_slices=3)
 
     @property
     def local_schema(self):
-        return algosdk.future.transaction.StateSchema(num_uints=0,
-                                                      num_byte_slices=0)
+        return algosdk.future.transaction.StateSchema(num_uints=0, num_byte_slices=0)
+
+# Instantiate the contract
+nft_marketplace_contract = NFTMarketplaceASC1()
